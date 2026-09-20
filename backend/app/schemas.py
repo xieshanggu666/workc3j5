@@ -22,7 +22,8 @@ class ActRequest(BaseModel):
     card: Optional[str] = None
     target: Optional[str] = "enemy"
     option: Optional[int] = None
-    branch: Optional[str] = None  # forge 动作用：强化分支 id
+    branch: Optional[str] = None  # forge 动作用（旧）：Tier-1 分支 id
+    node: Optional[str] = None    # forge 动作用（2.3.0+）：成长树节点 id
     kind: Optional[str] = None    # shop_buy 动作用：货架类别 card/relic
     sku: Optional[str] = None     # shop_buy/commission_accept 动作用：货架项/委托挂单项 id
     commission: Optional[str] = None  # commission_claim 动作用：委托实例 id

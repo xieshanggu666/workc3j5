@@ -120,7 +120,8 @@ def test_buy_card_deducts_sells_out_and_appends_instance(client):
 
     st = service.load_run(rid)["state"]
     new_uid = st["deck"][-1]
-    assert st["card_instances"][new_uid] == {"id": item["card"], "forges": []}
+    assert st["card_instances"][new_uid] == {
+        "id": item["card"], "growth": [], "growth_cost": 0}
     assert st["next_card_seq"] == len(st["card_instances"]) + 1
     assert next(c for c in st["shop"]["cards"] if c["sku"] == item["sku"])["sold"] is True
 
@@ -205,6 +206,31 @@ def test_remove_card_instance_deducts_grows_price_and_guards_deck(client):
     r2 = client.post(f"/api/runs/{rid}/act",
                      json={"action": "shop_remove", "card": second})
     assert r2.json()["log"][0]["shop_tx"]["price"] == shop_mod.REMOVE_BASE_COST + shop_mod.REMOVE_COST_GROWTH
+
+
+def test_remove_grown_instance_records_invested_cost(client):
+    """移除已成长的实例：成长节点/累计花费随实例一并删除，交易记录登记沉没成本。"""
+    seed, path = _find_shop_path(500)
+    rid = client.post("/api/runs", json={"seed": seed}).json()["run_id"]
+    run = _walk(client, rid, path)
+    uid = run["deck"][0]["uid"]
+    # 夹具：给该实例写入一段成长（sharpen + edge = 25 + 50）并同时改金币
+    rec = service.load_run(rid)
+    rec["state"]["card_instances"][uid]["growth"] = ["sharpen", "edge"]
+    rec["state"]["card_instances"][uid]["growth_cost"] = 75
+    rec["state"]["gold"] = 500
+    db.save_run(rid, rec["state"]["status"], rec["state"]["position"], rec["state"])
+
+    ok = client.post(f"/api/runs/{rid}/act",
+                     json={"action": "shop_remove", "card": uid})
+    assert ok.status_code == 200
+    tx = ok.json()["log"][0]["shop_tx"]
+    assert tx["type"] == "remove" and tx["uid"] == uid
+    assert tx["growth_cost"] == 75  # 沉没的成长投入随记录留痕
+    st = service.load_run(rid)["state"]
+    assert uid not in st["card_instances"] and uid not in st["deck"]
+    # 同名其余副本的成长状态不受影响
+    assert all("growth" in i for i in st["card_instances"].values())
 
 
 def test_remove_rejects_unknown_uid_outside_shop_and_min_deck(client):

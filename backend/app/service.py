@@ -14,14 +14,16 @@ from . import forging as forging_mod
 from . import shop as shop_mod
 from . import commissions as commission_mod
 from .cards import all_cards, get_card
-from .engine import Battle, _statuses_public
-from .forging import FORGE_COST, effective_card, branch_name
+from .engine import Battle, _statuses_public, inst_growth
+from .forging import FORGE_COST, effective_card, node_name, node_cost, validate_unlock, available_nodes
 
 # 规则版本：引擎/结算/存档结构发生语义变化时递增。
 # 建局写入 run 状态、每个动作事件携带 ver；回放据此标记录制版本与旧日志兼容。
 # 2.1.0：多章远征（章节 run 的 create 事件可携带交接快照 carry，回放据此重建初始状态）。
 # 2.2.0：远征委托（commissions/chapter/chapters_total 进入 run 状态与交接快照）。
-RULES_VERSION = "2.2.0"
+# 2.3.0：卡牌成长树（实例 forges 扁平分支 -> growth 节点 + growth_cost 累计花费，
+#        节点带前置/互斥；旧 forges 记录迁移为等价节点，回放旧日志按 legacy 处理）。
+RULES_VERSION = "2.3.0"
 
 # 初始牌组：卡牌 id 列表；建局时展开为独立实例（同名卡各持一份成长状态）
 START_DECK = ["strike", "strike", "strike", "strike", "guard", "guard", "guard"]
@@ -48,14 +50,47 @@ class ShopSoldOut(Exception):
     pass
 
 
+def _new_instance(cid):
+    """新卡牌实例：独立的成长树状态（已解锁节点 + 累计成长花费）。"""
+    return {"id": cid, "growth": [], "growth_cost": 0}
+
+
 def _make_instances(ids):
     """把卡牌 id 列表展开为 (uid 列表, 实例表, 下一序号)。"""
     uids, instances = [], {}
     for cid in ids:
         uid = f"c{len(uids) + 1}"
         uids.append(uid)
-        instances[uid] = {"id": cid, "forges": []}
+        instances[uid] = _new_instance(cid)
     return uids, instances
+
+
+def _normalize_instances(instances):
+    """把任意历史形态的实例表就地规整为成长树结构。
+
+    - 只有扁平 forges 的实例：迁移为 growth 节点 + growth_cost 累计花费；
+    - 已是 growth 结构：补齐 growth_cost 默认值；
+    迁移返回是否发生过结构升级（供调用方打 migrated 标记）。
+    """
+    changed = False
+    for inst in (instances or {}).values():
+        # 旧记录以扁平 forges 为准：即便新实例已带空 growth，只要还留着 forges
+        # 字段就说明是“新结构 + 旧强化记录”的迁移档，必须重放映射
+        legacy = list(inst.pop("forges", []))
+        migrated_legacy = False
+        if legacy:
+            inst["growth"] = forging_mod.migrate_legacy_forges(legacy)
+            migrated_legacy = True
+            changed = True
+        elif "growth" not in inst:
+            inst["growth"] = []
+            changed = True
+        cost = sum(node_cost(n) for n in inst.get("growth", []))
+        # 迁移旧记录时以节点价回填累计花费；否则只补缺失字段，不覆盖既有值
+        if migrated_legacy or "growth_cost" not in inst:
+            inst["growth_cost"] = cost
+            changed = True
+    return changed
 
 
 def _new_run_state(seed, carry=None, chapter=None, chapters_total=None, expedition_id=None):
@@ -79,6 +114,9 @@ def _new_run_state(seed, carry=None, chapter=None, chapters_total=None, expediti
     else:
         heal = max(1, int(carry.get("max_health", 75) * CHAPTER_CLEAR_HEAL_RATIO))
     instances = copy.deepcopy(carry["card_instances"])
+    # 交接快照可能来自旧版本章节（forges 扁平分支）：开章前统一规整为成长树结构，
+    # 在线开章与回放重建共用本函数，跨章继承的成长选择/花费逐位一致。
+    _normalize_instances(instances)
     max_hp = carry.get("max_health", 75)
     return {
         "seed": seed,
@@ -89,7 +127,7 @@ def _new_run_state(seed, carry=None, chapter=None, chapters_total=None, expediti
         "health": min(max_hp, max(1, carry.get("health", max_hp)) + heal),
         "base_energy": carry.get("base_energy", 3),
         "deck": list(carry["deck"]),      # 手牌引用（uid）
-        "card_instances": instances,      # uid -> {id, forges:[分支id]}
+        "card_instances": instances,      # uid -> {id, growth:[成长节点], growth_cost}
         "next_card_seq": carry.get("next_card_seq", len(instances) + 1),  # uid 单调发号器
         "gold": carry.get("gold", 0),
         "relics": dict(carry.get("relics", {})),
@@ -125,7 +163,7 @@ def _migrate_state(run):
         free_uids = {}  # card_id -> 尚未分配到牌堆的 uid 队列
         for cid in run.get("deck", []):
             uid = f"c{len(instances) + 1}"
-            instances[uid] = {"id": cid, "forges": []}
+            instances[uid] = _new_instance(cid)
             deck_uids.append(uid)
             free_uids.setdefault(cid, []).append(uid)
 
@@ -145,6 +183,20 @@ def _migrate_state(run):
         run["card_instances"] = instances
         run["next_card_seq"] = len(instances) + 1
         changed = True
+    # 2.3.0：成长树迁移——实例的扁平 forges 记录映射为带前置/互斥的成长节点，
+    # 并按节点价格回填累计花费；战斗内若存着旧实例表副本也要一并迁移
+    run_growth_migrated = _normalize_instances(run.get("card_instances"))
+    if run_growth_migrated:
+        changed = True
+    b = run.get("battle")
+    if isinstance(b, dict) and b.get("card_instances") is not None:
+        battle_migrated = _normalize_instances(b["card_instances"])
+        # 旧档常见形态：测试/老版本只在 run 级挂了 forges、战斗副本是新结构空壳。
+        # run 级刚完成迁移时，以 run 级为唯一事实来源覆盖战斗副本，保证两边一致。
+        if run_growth_migrated and not battle_migrated:
+            b["card_instances"] = copy.deepcopy(run["card_instances"])
+        if battle_migrated or run_growth_migrated:
+            changed = True
     # 旧档补记当前规则版本（仅标注；旧动作日志仍按 legacy 处理不做哈希校验）
     if "rules_version" not in run:
         run["rules_version"] = RULES_VERSION
@@ -229,12 +281,13 @@ def _commission_summary(commissions):
 
 
 def _carry_public(carry):
-    """交接快照的只读视口：牌组按实例呈现（携带各自锻造分支）。"""
+    """交接快照的只读视口：牌组按实例呈现（携带各自成长节点与累计花费）。"""
     instances = carry.get("card_instances", {})
     return {
         "deck": [{
             "uid": uid, "id": instances[uid]["id"],
-            "forges": list(instances[uid].get("forges", [])),
+            "growth": list(instances[uid].get("growth", [])),
+            "growth_cost": instances[uid].get("growth_cost", 0),
         } for uid in carry.get("deck", []) if uid in instances],
         "gold": carry.get("gold", 0),
         "relics": dict(carry.get("relics", {})),
@@ -574,7 +627,8 @@ def act(run_id, action):
 
             payload = {
                 "node": action.get("node"), "card": action.get("card"),
-                "option": action.get("option"), "branch": action.get("branch"),
+                "option": action.get("option"),
+                "branch": action.get("node") or action.get("branch"),
                 "kind": action.get("kind"), "sku": action.get("sku"),
                 "commission": action.get("commission"),
                 "ver": RULES_VERSION, "ckpt": state_checkpoint(run),
@@ -629,7 +683,8 @@ def _apply_action(run, a, action, map_data, grant_unlocks=False):
     if a == "claim_reward":
         return _claim_reward(run, action["option"])
     if a == "forge":
-        return _forge(run, action.get("card"), action.get("branch"))
+        # node：成长树节点 id；旧客户端仍传 branch（Tier-1 分支），二者等价
+        return _forge(run, action.get("card"), action.get("node") or action.get("branch"))
     if a == "shop_buy":
         return _shop_buy(run, action.get("kind"), action.get("sku"))
     if a == "shop_remove":
@@ -860,38 +915,54 @@ def _apply_option_effect(run, eff):
 
 
 def _add_card_instance(run, cid):
-    """奖励入牌：发放带独立成长状态的新卡牌实例（同名卡互不共享锻造）。"""
+    """奖励入牌：发放带独立成长树状态的新卡牌实例（同名卡互不共享成长）。"""
     seq = run.get("next_card_seq", len(run.get("card_instances", {})) + 1)
     uid = f"c{seq}"
     run["next_card_seq"] = seq + 1
-    run.setdefault("card_instances", {})[uid] = {"id": cid, "forges": []}
+    run.setdefault("card_instances", {})[uid] = _new_instance(cid)
     run["deck"].append(uid)
     return uid
 
 
-# ---------- 卡牌锻造 ----------
-def _forge(run, card_uid, branch):
+# ---------- 卡牌成长树 ----------
+def _forge(run, card_uid, node_id):
+    """在锻造节点为指定卡牌实例解锁一个成长树节点。
+
+    幂等：每个锻造节点仅可成长一次（forge_claimed 为幂等键），重复/并发请求
+    返回 409 且不扣款。校验（实例存在/节点合法/前置满足/互斥未占/金币充足）
+    全部先于扣款，任何失败零副作用。选择与花费按实例保存（growth/growth_cost），
+    随牌组贯通战斗结算、商店移除与跨章继承。
+
+    node_id 兼容旧客户端传入的 Tier-1 分支 id（sharpen/empower/refine）。
+    """
     # 仅在尚未锻造的锻造节点可操作：forge_claimed 承担幂等键，重复请求不重复扣款（409）
     if run.get("forge_claimed", True):
         raise DuplicateReward("forge already used at this node")
     if not card_uid or card_uid not in run.get("card_instances", {}):
         raise InvalidAction("unknown card instance")
-    if branch not in forging_mod.BRANCH_IDS:
-        raise InvalidAction("unknown forge branch")
-    if run["gold"] < FORGE_COST:
+    inst = run["card_instances"][card_uid]
+    growth = inst.setdefault("growth", [])
+    reason = validate_unlock(growth, node_id)
+    if reason is not None:
+        raise InvalidAction(reason)
+    cost = node_cost(node_id)
+    if run["gold"] < cost:
         raise InvalidAction("not enough gold")
     # 先校验全部通过再扣款，避免失败请求产生任何副作用
-    run["gold"] -= FORGE_COST
-    inst = run["card_instances"][card_uid]
-    inst.setdefault("forges", []).append(branch)
+    run["gold"] -= cost
+    growth.append(node_id)
+    inst["growth_cost"] = inst.get("growth_cost", 0) + cost
     run["forge_claimed"] = True
     run["events_log"].append({
-        "at": f"forge:{run['position']}", "card": inst["id"], "uid": card_uid, "branch": branch,
+        "at": f"forge:{run['position']}", "card": inst["id"], "uid": card_uid,
+        "node": node_id, "cost": cost,
     })
-    base = get_card(inst["id"])
-    eff = effective_card(base, inst["forges"])
-    return [{"forged": {"uid": card_uid, "card": inst["id"], "branch": branch,
-                        "cost": eff["cost"], "gold_left": run["gold"]}}]
+    eff = effective_card(get_card(inst["id"]), growth)
+    return [{"forged": {"uid": card_uid, "card": inst["id"], "node": node_id,
+                        "branch": node_id,  # 兼容旧前端/旧日志读取方
+                        "name": node_name(node_id), "cost": cost,
+                        "growth_cost": inst["growth_cost"],
+                        "card_cost": eff["cost"], "gold_left": run["gold"]}}]
 
 
 # ---------- 旅途商店 ----------
@@ -977,6 +1048,7 @@ def _shop_remove(run, card_uid):
     if run["gold"] < cost:
         raise InvalidAction("not enough gold")  # 校验先于扣款，无副作用
     cid = run["card_instances"][card_uid]["id"]
+    invested = run["card_instances"][card_uid].get("growth_cost", 0)
 
     def mutate(r):
         r["gold"] -= cost
@@ -984,7 +1056,8 @@ def _shop_remove(run, card_uid):
         del r["card_instances"][card_uid]
         r["shop"]["remove"]["used"] += 1
         r["shop"]["remove"]["cost"] = shop_mod.next_remove_cost(r["shop"]["remove"]["used"])
-        return {"uid": card_uid, "card": cid, "deck_size": len(r["deck"])}
+        return {"uid": card_uid, "card": cid, "deck_size": len(r["deck"]),
+                "growth_cost": invested}
 
     return _commit_shop_tx(
         run, mutate,
@@ -1377,7 +1450,8 @@ def _step_title(sim, map_data, action, payload, log):
     if action == "forge":
         inst = sim.get("card_instances", {}).get(payload.get("card"))
         cname = _card_name(inst["id"]) if inst else (payload.get("card") or "")
-        return f"锻造 {cname} · {branch_name(payload.get('branch'))}"
+        node_id = payload.get("node") or payload.get("branch")
+        return f"锻造 {cname} · {node_name(node_id)}"
     if action == "shop_buy":
         return f"商店购买（{payload.get('sku')}）"
     if action == "shop_remove":
@@ -1403,7 +1477,7 @@ def _step_summary(action, payload, log):
     if action == "forge":
         f = next((x.get("forged") for x in log if isinstance(x, dict) and x.get("forged")), None)
         if f:
-            return f"花费 {FORGE_COST}，余额 {f.get('gold_left')}"
+            return f"花费 {f.get('cost', FORGE_COST)}，余额 {f.get('gold_left')}"
     if action in ("play", "end_turn"):
         r = _step_result(log)
         prog = [x.get("commission_progress") for x in log
@@ -1443,7 +1517,7 @@ def _step_summary(action, payload, log):
 
 
 def _hand_public(run, bstate):
-    """战斗手牌视口：新档给出含生效费用/锻造标记的实例项，旧档回退为裸 id。"""
+    """战斗手牌视口：新档给出含生效费用/成长标记的实例项，旧档回退为裸 id。"""
     instances = bstate.get("card_instances", run.get("card_instances", {}))
     if not instances:
         return list(bstate["hand"])
@@ -1453,12 +1527,25 @@ def _hand_public(run, bstate):
         if inst is None:
             out.append(ref)
             continue
-        eff = effective_card(get_card(inst["id"]), inst.get("forges", []))
+        growth = inst_growth(inst)
+        eff = effective_card(get_card(inst["id"]), growth)
         out.append({
             "uid": ref, "id": inst["id"], "cost": eff["cost"],
-            "forges": list(inst.get("forges", [])),
+            "growth": list(growth),
+            "growth_cost": inst.get("growth_cost",
+                                   sum(node_cost(n) for n in growth)),
         })
     return out
+
+
+def _deck_item(uid, inst):
+    """牌组/交接里单个实例的只读项：成长节点 + 累计花费（含旧档 forges 兼容）。"""
+    growth = inst_growth(inst)
+    return {
+        "uid": uid, "id": inst["id"],
+        "growth": list(growth),
+        "growth_cost": inst.get("growth_cost", sum(node_cost(n) for n in growth)),
+    }
 
 
 def _public_view(run, map_data, run_id, include_unlocks=True, rev=None, expedition=None):
@@ -1488,12 +1575,10 @@ def _public_view(run, map_data, run_id, include_unlocks=True, rev=None, expediti
             "hand": _hand_public(run, run["battle"]),
             "enemy_id": run["battle"]["enemy"],
         }
-    # 牌组视口：同名卡按实例独立呈现（携带各自锻造分支）
+    # 牌组视口：同名卡按实例独立呈现（携带各自成长节点与累计花费）
     instances = run.get("card_instances", {})
-    deck_view = [{
-        "uid": uid, "id": instances[uid]["id"],
-        "forges": list(instances[uid].get("forges", [])),
-    } for uid in run["deck"] if uid in instances] or list(run["deck"])
+    deck_view = [_deck_item(uid, instances[uid])
+                 for uid in run["deck"] if uid in instances] or list(run["deck"])
     node_data = map_data["nodes"].get(run["position"], {})
     view = {
         "run_id": run_id,
@@ -1512,6 +1597,13 @@ def _public_view(run, map_data, run_id, include_unlocks=True, rev=None, expediti
         "forge_claimed": bool(run.get("forge_claimed", True)),
         "forge_cost": FORGE_COST,
         "forge_branches": forging_mod.public_branches(),
+        "forge_tree": forging_mod.public_tree(),
+        # 每张实例当前可解锁的成长节点（前置已满足、互斥未占、尚未点亮），
+        # 续局与回放用同一纯函数派生，锻造台据此禁用/点亮节点
+        "growth_options": {
+            uid: sorted(available_nodes(inst_growth(inst)))
+            for uid, inst in instances.items()
+        },
         "shop_available": node_data.get("type") == mapgen.SHOP and bool(run.get("shop")),
         "shop": shop_mod.public_view(run.get("shop")),
         "commissions": [

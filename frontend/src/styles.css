@@ -88,6 +88,14 @@ button.mini { font-size: 12px; padding: 4px 8px; }
 .ftag.empower { background: #22314d; color: #7db4ff; }
 .ftag.refine { background: #4a3c17; color: #ffd166; }
 .ftag.big { font-size: 16px; padding: 4px 8px; }
+/* 成长树深层/终式节点角标配色 */
+.ftag.edge, .ftag.annihilator { background: #4a1a22; color: #ff6b7d; }
+.ftag.bulwark, .ftag.fortify { background: #1d3450; color: #6fc4ff; }
+.ftag.overload, .ftag.transcendent { background: #2c2450; color: #a58cff; }
+.ftag.resonance, .ftag.momentum { background: #13403a; color: #4fe0c0; }
+.ftag.flux, .ftag.frugality { background: #4a3a10; color: #ffcf5c; }
+.ftag.inspiration, .ftag.insight { background: #43250f; color: #ffb067; }
+.invested { font-style: normal; font-size: 10px; color: #c9a86a; margin-left: 6px; }
 
 .unlockgrid { display: flex; flex-wrap: wrap; gap: 6px; }
 .chip { background: #333452; padding: 3px 8px; border-radius: 12px; font-size: 12px; }
@@ -166,6 +174,31 @@ button.mini { font-size: 12px; padding: 4px 8px; }
 .fbranch { display: flex; flex-direction: column; align-items: center; gap: 4px; width: 170px; padding: 12px; }
 .fbranch .bname { font-weight: 700; color: #7fd1ff; }
 .fbranch .bdesc { color: #99a; font-size: 12px; }
+
+/* 成长树面板 */
+.growthtree { border-top: 1px solid #2b2b40; padding-top: 10px; margin-top: 6px; text-align: left; }
+.gt-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 6px; }
+.gt-gold { color: #c9a86a; font-size: 12px; }
+.gt-mutex { color: #ffb067; font-size: 12px; margin-bottom: 8px; }
+.gt-grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(155px, 1fr));
+  gap: 8px;
+}
+.gnode {
+  display: flex; flex-direction: column; gap: 3px; padding: 8px; border-radius: 8px;
+  background: #1a1a27; border: 1px solid #2b2b40; text-align: left; color: #dde6ff;
+}
+.gnode .gname { font-weight: 700; }
+.gnode .gcost { font-size: 11px; color: #ffd166; }
+.gnode .gdesc { color: #99a; font-size: 11px; }
+.gnode.tier1 { border-left: 3px solid #7fd1ff; }
+.gnode.tier2 { border-left: 3px solid #a58cff; }
+.gnode.tier3 { border-left: 3px solid #ffd166; }
+.gnode.available:not(:disabled):hover { outline: 1px solid #7fd1ff; background: #1c2436; cursor: pointer; }
+.gnode.owned { opacity: 1; background: #15251d; border-color: #3a7a52; }
+.gnode.owned .gcost { color: #6fe0a0; }
+.gnode.locked { opacity: 0.42; cursor: not-allowed; }
+.gnode:disabled { cursor: not-allowed; }
 
 .endcard { background: #1d1d2b; border: 1px solid #2b2b40; border-radius: 12px; padding: 28px; text-align: center; max-width: 460px; }
 

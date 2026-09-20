@@ -3,6 +3,7 @@ import { api, handleActError } from '../api'
 import { useStore } from '../store'
 import { bus } from '../phaser/battleBus'
 import { startPhaser, STATUS_ZH } from '../phaser/BattleScene.js'
+import { growthTagOf } from '../growth'
 
 export default function BattleView({ view }) {
   const mountRef = useRef(null)
@@ -78,12 +79,12 @@ export default function BattleView({ view }) {
   const energy = b?.energy ?? view.energy
   const inTurn = b?.in_turn
 
-  // 手牌项兼容旧档裸 id；新档为 {uid,id,cost,forges}（费用已含锻造换算）
+  // 手牌项兼容旧档裸 id；新档为 {uid,id,cost,growth}（费用已含成长换算）
   const handCard = (item) => {
     if (typeof item === 'string') {
-      return { uid: item, id: item, cost: cardMeta(item)?.cost ?? 0, forges: [] }
+      return { uid: item, id: item, cost: cardMeta(item)?.cost ?? 0, growth: [] }
     }
-    return { uid: item.uid, id: item.id, cost: item.cost ?? cardMeta(item.id)?.cost ?? 0, forges: item.forges || [] }
+    return { uid: item.uid, id: item.id, cost: item.cost ?? cardMeta(item.id)?.cost ?? 0, growth: item.growth || item.forges || [] }
   }
 
   function canPlay(hc) {
@@ -103,17 +104,17 @@ export default function BattleView({ view }) {
             return (
               <button
                 key={hc.uid}
-                className={`card ${c.type} ${canPlay(hc) ? 'playable' : ''} ${hc.forges.length ? 'forged' : ''}`}
+                className={`card ${c.type} ${canPlay(hc) ? 'playable' : ''} ${hc.growth.length ? 'forged' : ''}`}
                 onClick={() => canPlay(hc) && doAct('play', { card: hc.uid })}
                 disabled={!canPlay(hc)}
                 title={c.desc}
               >
                 <span className="ccost">{hc.cost}</span>
                 <span className="cname">{c.name}</span>
-                {hc.forges.length > 0 && (
+                {hc.growth.length > 0 && (
                   <span className="handforges">
-                    {hc.forges.map((f, i) => (
-                      <i key={i} className={`ftag ${f}`}>{({ sharpen: '锋', empower: '强', refine: '炼' })[f] || f}</i>
+                    {hc.growth.map((g, i) => (
+                      <i key={i} className={`ftag ${g}`}>{growthTagOf(g)}</i>
                     ))}
                   </span>
                 )}

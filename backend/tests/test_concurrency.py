@@ -156,7 +156,8 @@ def test_concurrent_forge_charges_gold_once(client):
     assert codes.count(200) == 1 and codes.count(409) == 5
     st = service.load_run(rid)["state"]
     assert st["gold"] == 100 - service.FORGE_COST  # 只扣一次
-    assert st["card_instances"][uid]["forges"] == ["sharpen"]
+    assert st["card_instances"][uid]["growth"] == ["sharpen"]
+    assert st["card_instances"][uid]["growth_cost"] == service.FORGE_COST
     # 存档与日志一致（直接改库加金属于测试夹具动作，不参与回放逐位校验；
     # 校验每个真实提交动作内部自洽：无 error、无悬空状态）
     assert [e["action"] for e in db.load_events(rid)][-1] == "forge"

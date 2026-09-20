@@ -30,7 +30,7 @@ export const useStore = create((set, get) => ({
   cardMeta: (id) => get().cards.find((c) => c.id === id) || null,
 }))
 
-// 手牌/牌组项兼容两种形态：旧档裸 id（字符串）或卡牌实例 {uid,id,cost,forges}
+// 手牌/牌组项兼容两种形态：旧档裸 id（字符串）或卡牌实例 {uid,id,cost,growth,growth_cost}
 export function cardRef(item) {
   return typeof item === 'string' ? item : item?.uid
 }

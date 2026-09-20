@@ -1,17 +1,10 @@
 import React from 'react'
-import { useStore, cardBadge } from '../store'
+import { useStore } from '../store'
+import { growthTagList } from '../growth'
 
-const BRANCH_TAG = { sharpen: '锋', empower: '强', refine: '炼' }
-
-function ForgeTags({ forges }) {
-  if (!forges || forges.length === 0) return null
-  return (
-    <em className="ftags">
-      {forges.map((f, i) => (
-        <i key={i} className={`ftag ${f}`} title={f}>{BRANCH_TAG[f] || f}</i>
-      ))}
-    </em>
-  )
+function GrowthTags({ growth }) {
+  if (!growth || growth.length === 0) return null
+  return <em className="ftags">{growthTagList(growth)}</em>
 }
 
 export default function DeckView({ mode }) {
@@ -35,17 +28,20 @@ export default function DeckView({ mode }) {
   }
   if (!deck) return null
 
-  // deck 项：新档为 {uid,id,forges}，旧档为裸 id
+  // deck 项：新档为 {uid,id,growth,growth_cost}
   const groups = {}
   const order = []
   deck.forEach((item) => {
     const id = typeof item === 'string' ? item : item.id
     if (!groups[id]) {
-      groups[id] = { id, count: 0, forges: [] }
+      groups[id] = { id, count: 0, growths: [], invested: 0 }
       order.push(id)
     }
     groups[id].count += 1
-    if (typeof item !== 'string') groups[id].forges.push(item.forges || [])
+    if (typeof item !== 'string') {
+      groups[id].growths.push(item.growth || [])
+      groups[id].invested += item.growth_cost || 0
+    }
   })
 
   return (
@@ -55,13 +51,14 @@ export default function DeckView({ mode }) {
         {order.map((id) => {
           const g = groups[id]
           const c = cardMeta(id) || { id, name: id, desc: '', tier: '' }
-          // 同名卡的锻造分布：各实例独立显示（如 ×4 中 锋 / 锋炼）
-          const forgeMarks = g.forges.map((fs, i) => <ForgeTags key={i} forges={fs} />)
+          // 同名卡的成长分布：各实例独立显示（如 ×4 中 锋 / 锋刃）
+          const marks = g.growths.map((gr, i) => <GrowthTags key={i} growth={gr} />)
           return (
             <div key={id} className={`deckcard ${c.tier}`}>
               <span className="cname">
                 {c.name} <em>×{g.count}</em>{' '}
-                {forgeMarks.some((m) => m) && <span className="fmarks">{forgeMarks}</span>}
+                {marks.some((m) => m) && <span className="fmarks">{marks}</span>}
+                {g.invested > 0 && <i className="invested">累计投入 {g.invested}</i>}
               </span>
               <span className="cdesc">{cardBadge(c)} · {c.desc}</span>
             </div>
@@ -70,4 +67,13 @@ export default function DeckView({ mode }) {
       </div>
     </div>
   )
+}
+
+function cardBadge(card) {
+  switch (card.type) {
+    case 'attack': return '攻击'
+    case 'skill': return '技能'
+    case 'power': return '能力'
+    default: return ''
+  }
 }

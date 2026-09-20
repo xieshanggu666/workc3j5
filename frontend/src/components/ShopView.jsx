@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react'
 import { api, handleActError } from '../api'
 import { useStore } from '../store'
+import { growthTagList } from '../growth'
 
 const TYPE_LABEL = { attack: '攻击', skill: '技能', power: '能力' }
 
@@ -125,13 +126,14 @@ export default function ShopView({ view, onClose }) {
         <h3 className="shopsection">移除服务</h3>
         <p className="shopdesc">
           付费永久移除一张指定卡牌实例（同名卡的其余副本不受影响）。
-          本次价格 <b>{removeCost}</b> 金币，每移除一次价格上涨
-          {' '}{shop.remove.next_cost - removeCost} 金币。
+          已投入的成长花费随实例一并删除、不予返还；本次价格 <b>{removeCost}</b> 金币，
+          每移除一次价格上涨 {' '}{shop.remove.next_cost - removeCost} 金币。
         </p>
         <div className="forgelist">
           {deck.map((inst) => {
             const c = inst.meta || { name: inst.id, desc: '', tier: '' }
             const isSel = selected === inst.uid
+            const invested = inst.growth_cost || 0
             return (
               <button
                 key={inst.uid}
@@ -140,7 +142,11 @@ export default function ShopView({ view, onClose }) {
                 disabled={busy}
                 title={c.desc}
               >
-                <span className="cname">{c.name}</span>
+                <span className="cname">
+                  {c.name}
+                  {(inst.growth || []).length > 0 && <em className="ftags">{growthTagList(inst.growth)}</em>}
+                  {invested > 0 && <i className="invested">已投入 {invested}（移除不返还）</i>}
+                </span>
                 <span className="cdesc">{c.desc}</span>
               </button>
             )
@@ -165,7 +171,7 @@ export default function ShopView({ view, onClose }) {
                 <li key={i}>
                   {t.type === 'buy'
                     ? `购入${t.kind === 'card' ? '卡牌' : '遗物'}「${itemName(t.kind, t.sku)}」，花费 ${t.price}`
-                    : `移除卡牌实例（${cardMeta(t.card)?.name || t.card}），花费 ${t.price}，牌组 ${t.deck_size} 张`}
+                    : `移除卡牌实例（${cardMeta(t.card)?.name || t.card}${t.growth_cost ? `，成长投入 ${t.growth_cost} 随之舍弃` : ''}），花费 ${t.price}，牌组 ${t.deck_size} 张`}
                   ｜余额 {t.gold_left}
                 </li>
               ))}

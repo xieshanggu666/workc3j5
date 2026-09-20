@@ -22,6 +22,11 @@ def make_entity(key, name, max_hp, hp=None):
     }
 
 
+def inst_growth(inst):
+    """实例记录 -> 成长节点列表（2.3.0 起为 growth；兼容旧档的 forges 扁平分支）。"""
+    return inst.get("growth") if inst.get("growth") is not None else inst.get("forges", [])
+
+
 class Battle:
     """单场战斗：玩家 vs 一个敌人/首领。resolve 消费结算队列，产出事件日志。"""
 
@@ -61,24 +66,26 @@ class Battle:
         self.draw_pile = deck
         self.hand = []
         self.discard = []
-        # uid -> 卡牌实例 {"id","forges"}；旧档（裸 id 牌堆）为空 dict
+        # uid -> 卡牌实例 {"id","growth",...}；旧档（裸 id 牌堆）为空 dict
         self.card_instances = dict(card_instances or {})
         self.energy = run_state.get("base_energy", 3)
         self.max_energy = run_state.get("base_energy", 3)
         self.in_turn = False
         self.turn = 0
+        # 成长树共鸣/乘势：本回合已打出的攻击牌数（第一张攻击牌享首击加成）
+        self.attacks_played = 0
         self.truncated = False
         self.queue = SettlementQueue(self)
 
     # ---------- 卡牌实例 ----------
     def _card_def(self, ref):
-        """手牌引用（uid 或旧档裸 id）-> 生效卡牌定义（含锻造换算）。"""
+        """手牌引用（uid 或旧档裸 id）-> 生效卡牌定义（含成长树换算）。"""
         from .cards import get_card
         from .forging import effective_card
         inst = self.card_instances.get(ref)
         if inst is None:
             return get_card(ref)
-        return effective_card(get_card(inst["id"]), inst.get("forges", []))
+        return effective_card(get_card(inst["id"]), inst_growth(inst))
 
     # ---------- 实体查询 ----------
     def entity(self, key):
@@ -168,6 +175,7 @@ class Battle:
         self.turn += 1
         self.in_turn = True
         self.energy = self.max_energy
+        self.attacks_played = 0  # 新回合：共鸣/乘势的首击加成重新可用
         p = self.entities["player"]
         p["block"] = 0  # 玩家格挡回合末清空（简化）
         # 回合开始触发：力量成长
@@ -248,6 +256,19 @@ class Battle:
         else:
             card_ref = card_ref_or_def
             c = self._card_def(card_ref)
+        # 成长树「共鸣/乘势」：仅本回合打出的第一张攻击牌享首击伤害加成
+        first_bonus = c.pop("first_attack_bonus", 0) if isinstance(c, dict) else 0
+        is_attack = any(
+            t.get("type") in ("damage", "echo_damage") and "attack" in (t.get("tags") or [])
+            for t in c.get("effects", [])
+        ) if isinstance(c, dict) else False
+        if first_bonus and is_attack and self.attacks_played == 0:
+            for e in c["effects"]:
+                if e.get("type") == "damage":
+                    e["value"] = e.get("value", 0) + first_bonus
+                    break
+        if is_attack:
+            self.attacks_played += 1
         # 打出手牌：从 hand 移除（能量校验由 service 层完成）
         if card_ref not in self.hand:
             raise ValueError("手牌中不存在该卡牌")
@@ -286,6 +307,7 @@ class Battle:
             "card_instances": dict(self.card_instances),
             "energy": self.energy, "max_energy": self.max_energy,
             "turn": self.turn, "in_turn": self.in_turn, "phase": self.phase,
+            "attacks_played": self.attacks_played,
             "truncated": self.truncated,
         }
 
@@ -312,6 +334,7 @@ class Battle:
         b.turn = bstate.get("turn", 0)
         b.in_turn = bstate.get("in_turn", False)
         b.phase = bstate.get("phase", 0)
+        b.attacks_played = bstate.get("attacks_played", 0)
         b.truncated = bstate.get("truncated", False)
         b.queue = SettlementQueue(b)
         return b

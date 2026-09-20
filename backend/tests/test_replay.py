@@ -373,6 +373,42 @@ def test_replay_legacy_v1_run_state_migrates_but_is_not_saved(client):
     assert rep["steps"][0]["view"]["deck"]  # 初始帧可渲染
 
 
+def test_replay_old_rules_forge_step_is_flagged_not_broken(client):
+    """2.2.0 时代录制的 forge 动作（ver=2.2.0、扁平 forges 语义）在 2.3.0 回放：
+    不报错地重建，但因规则漂移校验点标 mismatch（而不是悄悄播错）。"""
+    import json as _json
+    from tests.test_forging import _new_run_seeded_to_forge_after_battles
+    rid, run = _new_run_seeded_to_forge_after_battles(client, 25)
+    uid = run["deck"][0]["uid"]
+    client.post(f"/api/runs/{rid}/act",
+                json={"action": "forge", "card": uid, "node": "sharpen"})
+    # 把该 forge 事件伪装成 2.2.0 录制：旧 ver + 旧存档结构算出的校验点，
+    # 模拟规则升级前已落库的日志（新规则推演结果与之不同 -> 漂移检出）
+    conn = db.get_conn()
+    row = conn.execute(
+        "SELECT seq, payload_json FROM battle_events WHERE run_id=? AND action='forge'",
+        (rid,)).fetchone()
+    p = _json.loads(row["payload_json"])
+    p["ver"] = "2.2.0"
+    p["ckpt"] = "old2200" + p["ckpt"][:8]
+    conn.execute("UPDATE battle_events SET payload_json=? WHERE run_id=? AND seq=?",
+                 (_json.dumps(p, ensure_ascii=False), rid, row["seq"]))
+    conn.commit()
+    conn.close()
+
+    rep = client.get(f"/api/runs/{rid}/replay").json()
+    forge_steps = [s for s in rep["steps"] if s["action"] == "forge"]
+    assert len(forge_steps) == 1
+    step = forge_steps[0]
+    # 旧 ver 有 ckpt：按规则漂移检出 mismatch，但动作仍被正常推演（不 error）
+    assert step["check"] == "mismatch"
+    assert step["error"] is None
+    assert "2.2.0" in rep["recorded_versions"]
+    # 回放本身只读：在线存档仍是 2.3.0 的新结构
+    online = service.load_run(rid)["state"]["card_instances"][uid]
+    assert online["growth"] == ["sharpen"]
+
+
 def test_state_checkpoint_stable_and_sensitive():
     a = _new_run_state(1)
     b = _new_run_state(1)

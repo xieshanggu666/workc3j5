@@ -3,12 +3,12 @@ import { useStore } from '../store'
 import { bus } from '../phaser/battleBus'
 import { startPhaser } from '../phaser/BattleScene.js'
 import ReplayMap from './ReplayMap.jsx'
+import { growthNodesOf, growthTag } from '../growth'
 
 const TYPE_LABEL = {
   encounter: '遭遇', elite: '精英', rest: '休息', reward: '奖励',
   forge: '锻造', shop: '商店', boss: '首领', start: '营地',
 }
-const BRANCH_TAG = { sharpen: '锋', empower: '强', refine: '炼' }
 
 // 整局回放的单帧舞台：严格只读，不调用 api.act。
 // - 地图帧：高亮当前位置与已走路径
@@ -52,17 +52,17 @@ export default function ReplayStage({ view, showShop }) {
             {hand.length === 0 && <span className="hint">手牌为空</span>}
             {hand.map((item) => {
               const hc = typeof item === 'string'
-                ? { uid: item, id: item, cost: cardMeta(item)?.cost ?? 0, forges: [] }
-                : { uid: item.uid, id: item.id, cost: item.cost ?? cardMeta(item.id)?.cost ?? 0, forges: item.forges || [] }
+                ? { uid: item, id: item, cost: cardMeta(item)?.cost ?? 0, growth: [] }
+                : { uid: item.uid, id: item.id, cost: item.cost ?? cardMeta(item.id)?.cost ?? 0, growth: growthNodesOf(item) }
               const c = cardMeta(hc.id) || { name: hc.id, type: 'attack', desc: '' }
               return (
-                <span key={hc.uid} className={`card ${c.type} replayed ${hc.forges.length ? 'forged' : ''}`} title={c.desc}>
+                <span key={hc.uid} className={`card ${c.type} replayed ${hc.growth.length ? 'forged' : ''}`} title={c.desc}>
                   <span className="ccost">{hc.cost}</span>
                   <span className="cname">{c.name}</span>
-                  {hc.forges.length > 0 && (
+                  {hc.growth.length > 0 && (
                     <span className="handforges">
-                      {hc.forges.map((f, i) => (
-                        <i key={i} className={`ftag ${f}`}>{BRANCH_TAG[f] || f}</i>
+                      {hc.growth.map((n, i) => (
+                        <i key={i} className={`ftag ${n}`}>{growthTag(n)}</i>
                       ))}
                     </span>
                   )}
@@ -100,29 +100,32 @@ export default function ReplayStage({ view, showShop }) {
 
 function ForgeSnapshot({ view }) {
   const cardMeta = useStore((s) => s.cardMeta)
-  const forgedUids = new Set(view.deck.filter((d) => d.forges?.length).map((d) => d.uid))
+  const grown = view.deck.filter((d) => growthNodesOf(d).length)
   return (
     <div className="overlay replay-overlay">
       <div className="forgecard panel replay-panel">
-        <h2>🔨 锻造台（回放）</h2>
+        <h2>🔨 锻造台 · 成长树（回放）</h2>
         <p className="forgedesc">
           锻造节点状态：{view.forge_claimed ? '已完成锻造（或离开）' : '尚未锻造'}。
-          下列卡牌实例携带各自在本局累计的锻造分支。
+          下列卡牌实例携带各自在本局累计解锁的成长节点与成本（只读）。
         </p>
         <div className="forgelist">
+          {grown.length === 0 && <span className="shopempty">本帧尚无卡牌获得成长。</span>}
           {view.deck.map((inst) => {
+            const nodes = growthNodesOf(inst)
             const c = cardMeta(inst.id) || { name: inst.id, desc: '', tier: '' }
             return (
-              <span key={inst.uid} className={`forgeinst ${c.tier} ${forgedUids.has(inst.uid) ? 'sel' : ''} readonly`}>
+              <span key={inst.uid} className={`forgeinst ${c.tier} ${nodes.length ? 'sel' : ''} readonly`}>
                 <span className="cname">
                   {c.name}
-                  {inst.forges?.length > 0 && (
+                  {nodes.length > 0 && (
                     <em className="ftags">
-                      {inst.forges.map((f, i) => (
-                        <i key={i} className={`ftag ${f}`}>{BRANCH_TAG[f] || f}</i>
+                      {nodes.map((n, i) => (
+                        <i key={i} className={`ftag ${n}`}>{growthTag(n)}</i>
                       ))}
                     </em>
                   )}
+                  {inst.growth_spent > 0 && <em className="gspent">已投入 {inst.growth_spent}</em>}
                 </span>
                 <span className="cdesc">{c.desc}</span>
               </span>

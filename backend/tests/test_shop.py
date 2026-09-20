@@ -120,7 +120,7 @@ def test_buy_card_deducts_sells_out_and_appends_instance(client):
 
     st = service.load_run(rid)["state"]
     new_uid = st["deck"][-1]
-    assert st["card_instances"][new_uid] == {"id": item["card"], "forges": []}
+    assert st["card_instances"][new_uid] == {"id": item["card"], "growth": []}
     assert st["next_card_seq"] == len(st["card_instances"]) + 1
     assert next(c for c in st["shop"]["cards"] if c["sku"] == item["sku"])["sold"] is True
 

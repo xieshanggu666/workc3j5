@@ -61,7 +61,7 @@ class Battle:
         self.draw_pile = deck
         self.hand = []
         self.discard = []
-        # uid -> 卡牌实例 {"id","forges"}；旧档（裸 id 牌堆）为空 dict
+        # uid -> 卡牌实例 {"id","growth":[{node,cost}]}；旧档（裸 id 牌堆）为空 dict
         self.card_instances = dict(card_instances or {})
         self.energy = run_state.get("base_energy", 3)
         self.max_energy = run_state.get("base_energy", 3)
@@ -72,13 +72,13 @@ class Battle:
 
     # ---------- 卡牌实例 ----------
     def _card_def(self, ref):
-        """手牌引用（uid 或旧档裸 id）-> 生效卡牌定义（含锻造换算）。"""
+        """手牌引用（uid 或旧档裸 id）-> 生效卡牌定义（含成长树换算）。"""
         from .cards import get_card
         from .forging import effective_card
         inst = self.card_instances.get(ref)
         if inst is None:
             return get_card(ref)
-        return effective_card(get_card(inst["id"]), inst.get("forges", []))
+        return effective_card(get_card(inst["id"]), inst.get("growth", []))
 
     # ---------- 实体查询 ----------
     def entity(self, key):

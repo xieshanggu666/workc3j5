@@ -1,14 +1,13 @@
 import React from 'react'
 import { useStore, cardBadge } from '../store'
+import { growthNodesOf, growthTag } from '../growth'
 
-const BRANCH_TAG = { sharpen: '锋', empower: '强', refine: '炼' }
-
-function ForgeTags({ forges }) {
-  if (!forges || forges.length === 0) return null
+function GrowthTags({ nodes }) {
+  if (!nodes || nodes.length === 0) return null
   return (
     <em className="ftags">
-      {forges.map((f, i) => (
-        <i key={i} className={`ftag ${f}`} title={f}>{BRANCH_TAG[f] || f}</i>
+      {nodes.map((n, i) => (
+        <i key={i} className={`ftag ${n}`} title={n}>{growthTag(n)}</i>
       ))}
     </em>
   )
@@ -35,17 +34,17 @@ export default function DeckView({ mode }) {
   }
   if (!deck) return null
 
-  // deck 项：新档为 {uid,id,forges}，旧档为裸 id
+  // deck 项：新档为 {uid,id,growth,growth_nodes}，旧档为裸 id
   const groups = {}
   const order = []
   deck.forEach((item) => {
     const id = typeof item === 'string' ? item : item.id
     if (!groups[id]) {
-      groups[id] = { id, count: 0, forges: [] }
+      groups[id] = { id, count: 0, growths: [] }
       order.push(id)
     }
     groups[id].count += 1
-    if (typeof item !== 'string') groups[id].forges.push(item.forges || [])
+    if (typeof item !== 'string') groups[id].growths.push(growthNodesOf(item))
   })
 
   return (
@@ -55,13 +54,13 @@ export default function DeckView({ mode }) {
         {order.map((id) => {
           const g = groups[id]
           const c = cardMeta(id) || { id, name: id, desc: '', tier: '' }
-          // 同名卡的锻造分布：各实例独立显示（如 ×4 中 锋 / 锋炼）
-          const forgeMarks = g.forges.map((fs, i) => <ForgeTags key={i} forges={fs} />)
+          // 同名卡的成长分布：各实例独立显示（如 ×4 中 锋 / 锋破裂）
+          const marks = g.growths.map((ns, i) => <GrowthTags key={i} nodes={ns} />)
           return (
             <div key={id} className={`deckcard ${c.tier}`}>
               <span className="cname">
                 {c.name} <em>×{g.count}</em>{' '}
-                {forgeMarks.some((m) => m) && <span className="fmarks">{forgeMarks}</span>}
+                {marks.some((m) => m) && <span className="fmarks">{marks}</span>}
               </span>
               <span className="cdesc">{cardBadge(c)} · {c.desc}</span>
             </div>

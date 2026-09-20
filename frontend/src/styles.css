@@ -77,16 +77,19 @@ button.mini { font-size: 12px; padding: 4px 8px; }
 .deckcard .cname em { color: #99a; font-style: normal; font-weight: normal; }
 .deckcard .cdesc { color: #99a; font-size: 12px; }
 
-/* 锻造分支标记：锋=红（攻击）/ 强=蓝（数值）/ 炼=金（费用） */
+/* 成长节点标记：入门=锋/强/炼；进阶与终阶按 lane 着色 */
 .ftags { display: inline-flex; gap: 2px; margin-left: 4px; }
 .fmarks { display: inline-flex; gap: 4px; flex-wrap: wrap; }
 .ftag {
   font-style: normal; font-size: 11px; line-height: 1; padding: 2px 4px; border-radius: 4px;
   background: #333452; color: #cde; font-weight: 700;
 }
-.ftag.sharpen { background: #4a2330; color: #ff8a9b; }
-.ftag.empower { background: #22314d; color: #7db4ff; }
-.ftag.refine { background: #4a3c17; color: #ffd166; }
+.ftag.sharpen, .ftag.keen, .ftag.rend, .ftag.execute,
+.ftag.bulwark, .ftag.fortress, .ftag.thorns { background: #4a2330; color: #ff8a9b; }
+.ftag.empower, .ftag.amplify, .ftag.overload, .ftag.attunement,
+.ftag.insight, .ftag.enlightenment, .ftag.flow { background: #22314d; color: #7db4ff; }
+.ftag.refine, .ftag.economize, .ftag.frugality, .ftag.mastery,
+.ftag.streamline, .ftag.gush, .ftag.zero_form { background: #4a3c17; color: #ffd166; }
 .ftag.big { font-size: 16px; padding: 4px 8px; }
 
 .unlockgrid { display: flex; flex-wrap: wrap; gap: 6px; }
@@ -145,11 +148,13 @@ button.mini { font-size: 12px; padding: 4px 8px; }
 .roption .rdesc { color: #99a; font-size: 13px; }
 .roption .rgo { color: #7d3cff; font-size: 12px; }
 
-/* 锻造台 */
-.forgecard { max-width: 640px; width: 92vw; max-height: 88vh; overflow: auto; text-align: center; }
+/* 锻造台 / 成长树 */
+.forgecard { max-width: 920px; width: 94vw; max-height: 90vh; overflow: auto; text-align: center; }
 .forgedesc { color: #99a; font-size: 13px; }
+.gspent { font-style: normal; font-size: 10px; color: #ffd166; margin-left: 6px; }
+.gavail { font-size: 10px; color: #5be0b0; }
 .forgelist {
-  display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
   gap: 8px; margin: 12px 0; text-align: left;
 }
 .forgeinst {
@@ -162,10 +167,27 @@ button.mini { font-size: 12px; padding: 4px 8px; }
 .forgeinst.sel { outline: 2px solid #7fd1ff; background: #1c2436; }
 .forgeinst .cname { font-weight: 600; }
 .forgeinst .cdesc { color: #99a; font-size: 11px; }
-.forgebranches { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
-.fbranch { display: flex; flex-direction: column; align-items: center; gap: 4px; width: 170px; padding: 12px; }
-.fbranch .bname { font-weight: 700; color: #7fd1ff; }
-.fbranch .bdesc { color: #99a; font-size: 12px; }
+
+.growthtree { display: flex; flex-direction: column; gap: 12px; margin-top: 8px; text-align: left; }
+.growthtier h4 { margin: 0 0 6px; color: #cde; font-size: 14px; }
+.growthtier h4 em { color: #ffd166; font-style: normal; font-size: 12px; margin-left: 8px; }
+.growthnodes { display: grid; grid-template-columns: repeat(auto-fill, minmax(132px, 1fr)); gap: 8px; }
+.gnode {
+  display: flex; flex-direction: column; align-items: center; gap: 3px; padding: 8px 6px;
+  background: #1a1a27; border: 1px solid #2b2b40; border-radius: 8px; position: relative;
+}
+.gnode .bname { font-weight: 700; font-size: 13px; }
+.gnode .gcost { color: #ffd166; font-size: 11px; }
+.gnode .gstate { font-size: 10px; color: #778; }
+.gnode.available { border-color: #5be0b0; cursor: pointer; }
+.gnode.available:not(:disabled):hover { background: #1d2a26; }
+.gnode.owned { opacity: 1; border-color: #7fd1ff; background: #16222f; }
+.gnode.owned .gstate { color: #7fd1ff; }
+.gnode.locked, .gnode.mutex { opacity: .4; cursor: not-allowed; }
+.gnode.mutex .gstate { color: #e08a8a; }
+.gnode:disabled { cursor: not-allowed; }
+.gnode.node-t1 .ftag.big { font-size: 14px; }
+.gnode.node-t3 { border-width: 2px; }
 
 .endcard { background: #1d1d2b; border: 1px solid #2b2b40; border-radius: 12px; padding: 28px; text-align: center; max-width: 460px; }
 

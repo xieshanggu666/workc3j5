@@ -185,7 +185,8 @@ def test_chapter_clear_records_carry_and_advance(client):
     rec["state"]["gold"] = 66
     rec["state"]["relics"]["power_up"] = 1
     uid = rec["state"]["deck"][0]
-    rec["state"]["card_instances"][uid]["forges"].append("sharpen")
+    rec["state"]["card_instances"][uid]["growth"].append(
+        {"node": "sharpen", "cost": service.FORGE_COST})
     rec["state"]["health"] = 40
     db.save_run(rid1, rec["state"]["status"], rec["state"]["position"], rec["state"])
 
@@ -197,7 +198,7 @@ def test_chapter_clear_records_carry_and_advance(client):
     assert exp["status"] == "in_progress" and exp["chapter"] == 1
     assert exp["carry"]["gold"] == 66 and exp["carry"]["relics"] == {"power_up": 1}
     forged = next(c for c in exp["carry"]["deck"] if c["uid"] == uid)
-    assert forged["forges"] == ["sharpen"]
+    assert forged["growth_nodes"] == ["sharpen"]
     assert [e["kind"] for e in db.load_expedition_events(exp_id)] == ["create", "chapter_clear"]
 
     # 进入下一章：牌组/锻造/遗物/金币交接，休整回血（40 -> 40+18=58，上限 75）
@@ -212,7 +213,7 @@ def test_chapter_clear_records_carry_and_advance(client):
     assert run2["relics"] == {"power_up": 1}
     assert run2["health"] == 58 and run2["max_health"] == 75
     carried = next(c for c in run2["deck"] if c["uid"] == uid)
-    assert carried["forges"] == ["sharpen"]
+    assert carried["growth_nodes"] == ["sharpen"]
     # 新章为新图（章节种子派生）
     rec2 = service.load_run(run2["run_id"])
     assert rec2["state"]["seed"] == service._chapter_seed(5, 2)
